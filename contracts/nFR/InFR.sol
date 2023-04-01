@@ -23,7 +23,7 @@ interface InFR is IERC165 {
 
     event Bought(uint256 indexed tokenId, uint256 indexed salePrice);
 
-    function list(uint256 tokenId, uint256 salePrice) external;
+    function list(uint256 tokenId, uint256 amount, uint256 salePrice) external;
 
     function unlist(uint256 tokenId) external;
 

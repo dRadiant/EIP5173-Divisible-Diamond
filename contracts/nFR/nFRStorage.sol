@@ -17,6 +17,7 @@ library nFRStorage {
 
     struct ListInfo {
         uint256 salePrice; // ETH mantissa of the listed selling price
+        uint256 saleAmount; // Amount of tokens being sold
         address lister; // Owner/Lister of the Token
         bool isListed; // Boolean indicating whether the Token is listed or not
     }
