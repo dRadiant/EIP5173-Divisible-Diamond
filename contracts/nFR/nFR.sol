@@ -41,12 +41,13 @@ abstract contract nFR is InFR, SolidStateERC721 {
         override
         returns (
             uint256,
+            uint256,
             address,
             bool
         )
     {
         nFRStorage.Layout storage l = nFRStorage.layout();
-        return (l._tokenListInfo[tokenId].salePrice, l._tokenListInfo[tokenId].lister, l._tokenListInfo[tokenId].isListed);
+        return (l._tokenListInfo[tokenId].salePrice, l._tokenListInfo[tokenId].saleAmount, l._tokenListInfo[tokenId].lister, l._tokenListInfo[tokenId].isListed);
     }
 
     function getAssetInfo(uint256 tokenId) 
@@ -78,7 +79,7 @@ abstract contract nFR is InFR, SolidStateERC721 {
         require(from != to, "transfer to self");
         nFRStorage.Layout storage l = nFRStorage.layout();
 
-        require(amount <= l._tokenAssetInfo[tokenId].amount, "amount is too large");
+        require(amount <= l._tokenAssetInfo[tokenId].amount, "amount is too large"); // If this check is done in list, is it necessary here?
 
         for (uint i = 0; i < l._tokenFRInfo[tokenId].addressesInFR.length; i++) { // Could use an isInFR mapping if it is cheaper
             require(l._tokenFRInfo[tokenId].addressesInFR[i] != to, "Already in the FR sliding window");
@@ -117,7 +118,12 @@ abstract contract nFR is InFR, SolidStateERC721 {
 
         address lister = l._tokenListInfo[tokenId].lister;
 
-        delete l._tokenListInfo[tokenId]; // Need to determine if we want to have partial buys, aka if the list amount is 10 tokens, and you have partial buys, you can just buy 5 tokens. Without partials, the listing would be deleted, with partials, it'd just be deducted from the list amount.
+        if (l._tokenListInfo[tokenId].isListed && amount < l._tokenListInfo[tokenId].saleAmount) { // If the token sold a partial amount
+            l._tokenListInfo[tokenId].salePrice -= ((amount.div(l._tokenListInfo[tokenId].saleAmount)).mul(l._tokenListInfo[tokenId].salePrice)); // (buyAmount/saleAmount) * salePrice
+            l._tokenListInfo[tokenId].saleAmount -= amount;
+        } else { // If the entire list was fulfilled or the token isn't listed, delete everything
+            delete l._tokenListInfo[tokenId];
+        }
 
         (bool sent, ) = payable(lister).call{value: soldPrice - allocatedFR}("");
         require(sent, "ERC5173: Failed to send ETH to lister");
@@ -143,17 +149,18 @@ abstract contract nFR is InFR, SolidStateERC721 {
         emit Unlisted(tokenId);
     }
 
-    function buy(uint256 tokenId) public payable virtual override {
+    function buy(uint256 tokenId, uint256 amount) public payable virtual override {
         nFRStorage.Layout storage l = nFRStorage.layout();
         require(l._tokenListInfo[tokenId].isListed == true, "Token is not listed");
+        require(amount <= l._tokenListInfo[tokenId].saleAmount, "Buy amount exceeds list amount");
 
-        uint256 salePrice = l._tokenListInfo[tokenId].salePrice;
+        uint256 salePrice = ((amount).div(l._tokenListInfo[tokenId].saleAmount)).mul(l._tokenListInfo[tokenId].salePrice); // Sale price should be determined based on the amount supplied into the buy function, (buyAmount/saleAmount) * salePrice
 
         require(salePrice == msg.value, "salePrice and msg.value mismatch");
 
-        _transferFrom(l._tokenListInfo[tokenId].lister, _msgSender(), tokenId, l._tokenListInfo[tokenId].saleAmount, salePrice);
+        _transferFrom(l._tokenListInfo[tokenId].lister, _msgSender(), tokenId, amount, salePrice);
 
-        emit Bought(tokenId, salePrice);
+        emit Bought(tokenId, salePrice, amount);
     }
 
     function _transfer(
@@ -198,7 +205,7 @@ abstract contract nFR is InFR, SolidStateERC721 {
         return newTokenId;
     }
 
-    function _mint(address to, uint256 tokenId) internal virtual override {
+    function _mint(address to, uint256 tokenId) internal virtual override { // This func has not been touched at all, need to refactor it to be up to date
         nFRStorage.Layout storage l = nFRStorage.layout();
 
         require(l._defaultFRInfo.isValid, "No Default FR Info has been set");
@@ -288,7 +295,7 @@ abstract contract nFR is InFR, SolidStateERC721 {
         uint8 numGenerations,
         uint256 percentOfProfit,
         uint256 successiveRatio
-    ) internal virtual {
+    ) internal virtual { // Probably need to touch on this function as well
         require(numGenerations > 0 && percentOfProfit > 0 && percentOfProfit <= 1e18 && successiveRatio > 0, "Invalid Data Passed");
         nFRStorage.Layout storage l = nFRStorage.layout();
 

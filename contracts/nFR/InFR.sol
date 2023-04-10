@@ -21,13 +21,13 @@ interface InFR is IERC165 {
 
     event Unlisted(uint256 indexed tokenId);
 
-    event Bought(uint256 indexed tokenId, uint256 indexed salePrice);
+    event Bought(uint256 indexed tokenId, uint256 indexed salePrice, uint256 indexed saleAmount);
 
     function list(uint256 tokenId, uint256 amount, uint256 salePrice) external;
 
     function unlist(uint256 tokenId) external;
 
-    function buy(uint256 tokenId) payable external;
+    function buy(uint256 tokenId, uint256 amount) payable external;
 
     function releaseFR(address payable account) external;
 
@@ -35,7 +35,7 @@ interface InFR is IERC165 {
 
     function getAllottedFR(address account) external view returns(uint256);
 
-    function getListInfo(uint256 tokenId) external view returns(uint256, address, bool);
+    function getListInfo(uint256 tokenId) external view returns(uint256, uint256, address, bool);
 
     function getAssetInfo(uint256 tokenId) external view returns (uint256, uint256);
     

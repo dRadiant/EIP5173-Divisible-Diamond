@@ -5,6 +5,7 @@ import { expect } from "chai";
 import { ethers } from "hardhat";
 
 import { Selectors, FacetCutAction } from './libraries/diamond';
+import { getTXCost } from './libraries/txCost';
 
 import { div, mul } from "@prb/math";
 
@@ -145,55 +146,65 @@ describe("nFR implementation contract", function() {
 
 	describe("nFR Transactions", function() {
 		describe("Reverts", () => {
-			it("Should fail list if not owner", async function() {
-				let signer = nFR.connect(addrs[0]);
+			describe("List", () => {
+				it("Should fail list if not owner", async function() {
+					let signer = nFR.connect(addrs[0]);
+		
+					await expect(signer.list(tokenId, tokenAmount, ethers.utils.parseUnits("1"))).to.be.revertedWith("ERC5173: list caller is not owner nor approved");
+				});
 	
-				await expect(signer.list(tokenId, tokenAmount, ethers.utils.parseUnits("1"))).to.be.revertedWith("ERC5173: list caller is not owner nor approved");
-			});
+				it("Should fail list if list amount is greater than asset amount", async () => {
+					await expect(nFR.list(tokenId, tokenAmount.add(1), ethers.utils.parseUnits("1"))).to.be.revertedWith("amount is too large");
+				});
+		
+				it("Should fail unlist if not owner", async function() {
+					let signer = nFR.connect(addrs[0]);
+		
+					await nFR.list(tokenId, tokenAmount, ethers.utils.parseUnits("1"));
+		
+					await expect(signer.unlist(tokenId)).to.be.revertedWith("ERC5173: unlist caller is not owner nor approved");
+				});
+			})
+			
+			describe("Buy", () => {
+				it("Should revert buy if NFT is not listed", async function() {
+					let signer = nFR.connect(addrs[0]);
+		
+					await expect(signer.buy(tokenId, { value: ethers.utils.parseUnits("0.5") })).to.be.revertedWith("Token is not listed");
+				});
+		
+				it("Should revert buy if msg.value is not equal to salePrice", async function() {
+					let signer = nFR.connect(addrs[0]);
+		
+					await nFR.list(tokenId, tokenAmount, ethers.utils.parseUnits("1"));
+		
+					await expect(signer.buy(tokenId, { value: ethers.utils.parseUnits("0.5") })).to.be.revertedWith("salePrice and msg.value mismatch");
+				});
+	
+				it("Should revert buy if buy amount is greater than sale amount", async () => {
+	
+				});
 
-			it("Should fail list if list amount is greater than asset amount", async () => {
-				await expect(nFR.list(tokenId, tokenAmount.add(1), ethers.utils.parseUnits("1"))).to.be.revertedWith("amount is too large");
-			});
+				it("Should revert if buyer is already in the FR sliding window", async () => {
+					await nFR.list(tokenId, tokenAmount, baseSale);
+		
+					let buyer = await nFR.connect(addrs[0]);
+		
+					await buyer.buy(tokenId, { value: baseSale });
+		
+					await buyer.list(tokenId, tokenAmount, baseSale.add(ethers.utils.parseUnits(saleIncrementor)));
+		
+					await expect(nFR.buy(tokenId, { value: baseSale.add(ethers.utils.parseUnits(saleIncrementor)) })).to.revertedWith("Already in the FR sliding window");
+				});
+			})
 	
-			it("Should fail unlist if not owner", async function() {
-				let signer = nFR.connect(addrs[0]);
-	
-				await nFR.list(tokenId, tokenAmount, ethers.utils.parseUnits("1"));
-	
-				await expect(signer.unlist(tokenId)).to.be.revertedWith("ERC5173: unlist caller is not owner nor approved");
-			});
-	
-			it("Should revert buy if NFT is not listed", async function() {
-				let signer = nFR.connect(addrs[0]);
-	
-				await expect(signer.buy(tokenId, { value: ethers.utils.parseUnits("0.5") })).to.be.revertedWith("Token is not listed");
-			});
-	
-			it("Should revert buy if msg.value is not equal to salePrice", async function() {
-				let signer = nFR.connect(addrs[0]);
-	
-				await nFR.list(tokenId, tokenAmount, ethers.utils.parseUnits("1"));
-	
-				await expect(signer.buy(tokenId, { value: ethers.utils.parseUnits("0.5") })).to.be.revertedWith("salePrice and msg.value mismatch");
-			});
-	
-			it("Should revert if buyer is already in the FR sliding window", async () => {
-				await nFR.list(tokenId, tokenAmount, baseSale);
-	
-				let buyer = await nFR.connect(addrs[0]);
-	
-				await buyer.buy(tokenId, { value: baseSale });
-	
-				await buyer.list(tokenId, tokenAmount, baseSale.add(ethers.utils.parseUnits(saleIncrementor)));
-	
-				await expect(nFR.buy(tokenId, { value: baseSale.add(ethers.utils.parseUnits(saleIncrementor)) })).to.revertedWith("Already in the FR sliding window");
-			});
-
-			it("Should fail if improper data passed to default FR info", async function() {
-				await expect(nFR.setDefaultFRInfo("0", percentOfProfit, successiveRatio)).to.be.revertedWith("Invalid Data Passed");
-				await expect(nFR.setDefaultFRInfo(numGenerations, ethers.utils.parseUnits("2"), successiveRatio)).to.be.revertedWith("Invalid Data Passed");
-				await expect(nFR.setDefaultFRInfo(numGenerations, percentOfProfit, ethers.utils.parseUnits("0"))).to.be.revertedWith("Invalid Data Passed");
-			});
+			describe("Default FR Info", () => {
+				it("Should fail if improper data passed to default FR info", async function() {
+					await expect(nFR.setDefaultFRInfo("0", percentOfProfit, successiveRatio)).to.be.revertedWith("Invalid Data Passed");
+					await expect(nFR.setDefaultFRInfo(numGenerations, ethers.utils.parseUnits("2"), successiveRatio)).to.be.revertedWith("Invalid Data Passed");
+					await expect(nFR.setDefaultFRInfo(numGenerations, percentOfProfit, ethers.utils.parseUnits("0"))).to.be.revertedWith("Invalid Data Passed");
+				});	
+			})
 		});
 
 		it("Should list properly", async function() {
@@ -218,31 +229,39 @@ describe("nFR implementation contract", function() {
 	
 				await nFR.list(tokenId, transferAmount, ethers.utils.parseUnits("1"));
 	
-				await signer.buy(tokenId, {
+				let tx = await signer.buy(tokenId, {
 					value: ethers.utils.parseUnits("1")
 				});
 	
-				expect(await ethers.provider.getBalance(addrs[0].address)).to.be.below(expectedBalance);
+				expect(await ethers.provider.getBalance(addrs[0].address)).to.be.equal(expectedBalance.sub(await getTXCost(tx)));
 				expect(await ethers.provider.getBalance(nFR.address)).to.equal(ethers.utils.parseUnits("0"));
 				expect(await nFR.getAllottedFR(owner.address)).to.equal(ethers.utils.parseUnits("0"));
 				expect(await nFR.getFRInfo(tokenId)).to.deep.equal([ numGenerations, percentOfProfit, successiveRatio, ethers.utils.parseUnits("0"), ethers.BigNumber.from("1"), [owner.address] ]);
-				expect(await nFR.getFRInfo(tokenId + 1)).to.deep.equal([ numGenerations, percentOfProfit, successiveRatio, ethers.utils.parseUnits("1"), ethers.BigNumber.from("2"), [owner.address, addrs[0].address] ]);
+				expect(await nFR.getFRInfo(tokenId + 1)).to.deep.equal([ numGenerations, percentOfProfit, successiveRatio, ethers.utils.parseUnits("1"), ethers.BigNumber.from("2"), [owner.address, addrs[0].address] ]); 
+
+				/* Below Here is Messy - but essentially we are testing the fractional profit calculation, we bought bought an NFT, which was 1.5, or 0.75 when we split it in half, then we buy half for 0.9, which is a 0.15 profit, 16% of that, is then 0.024, which is correct, the contract works exactly like that. */
 	
 				balanceBefore = await ethers.provider.getBalance(addrs[1].address);
 	
-				expectedBalance = balanceBefore.sub(ethers.utils.parseUnits("1"));
+				expectedBalance = balanceBefore.sub(ethers.utils.parseUnits("1.5"));
 	
-				let sellerExpectedBalance = (await ethers.provider.getBalance(addrs[0].address)).add(ethers.utils.parseUnits("0.5")).sub(ethers.utils.parseUnits("0.001"));
+				let sellerExpectedBalance = (await ethers.provider.getBalance(addrs[0].address)).add(ethers.utils.parseUnits("0.5"));
 	
-				await signer.list(tokenId + 1, transferAmount, ethers.utils.parseUnits("1.5"));
+				tx = await signer.list(tokenId + 1, transferAmount, ethers.utils.parseUnits("1.5"));
+
+				sellerExpectedBalance = sellerExpectedBalance.sub(await getTXCost(tx))
 	
 				let buyer = nFR.connect(addrs[1]);
 				
-				await buyer.buy(tokenId + 1, {
+				tx = await buyer.buy(tokenId + 1, {
 					value: ethers.utils.parseUnits("1.5")
 				});
 
-				await buyer.list(tokenId + 1, transferAmount.div(2), ethers.utils.parseUnits("0.9"));
+				expectedBalance = expectedBalance.sub(await getTXCost(tx));
+
+				tx = await buyer.list(tokenId + 1, transferAmount.div(2), ethers.utils.parseUnits("0.9"));
+
+				expectedBalance = expectedBalance.sub(await getTXCost(tx));
 				
 				let buyer2 = nFR.connect(addrs[2]);
 
@@ -255,7 +274,7 @@ describe("nFR implementation contract", function() {
 				expect(await ethers.provider.getBalance(nFR.address)).to.be.above(oldContractBalance);
 	
 				expect(await ethers.provider.getBalance(addrs[0].address)).to.be.above(sellerExpectedBalance);
-				expect(await ethers.provider.getBalance(addrs[1].address)).to.be.below(expectedBalance);
+				expect(await ethers.provider.getBalance(addrs[1].address)).to.be.equal(expectedBalance.add(ethers.utils.parseUnits("0.9")));
 				expect(await ethers.provider.getBalance(nFR.address)).to.equal(ethers.utils.parseUnits("0.08"));
 				expect(await nFR.getAllottedFR(owner.address)).to.equal(ethers.utils.parseUnits("0.08"));
 				expect(await nFR.getAllottedFR(addrs[0].address)).to.equal(ethers.utils.parseUnits("0"));

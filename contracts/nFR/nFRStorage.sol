@@ -18,6 +18,7 @@ library nFRStorage {
     struct ListInfo {
         uint256 salePrice; // ETH mantissa of the listed selling price
         uint256 saleAmount; // Amount of tokens being sold
+        // uint256 maxPartial; // Max amount that can be sold partially
         address lister; // Owner/Lister of the Token
         bool isListed; // Boolean indicating whether the Token is listed or not
     }
