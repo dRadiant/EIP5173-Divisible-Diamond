@@ -61,7 +61,7 @@ abstract contract nFR is InFR, SolidStateERC721 {
         )
     {
         nFRStorage.Layout storage l = nFRStorage.layout();
-        return (l._tokenAssetInfo[tokenId].initialAmount, l._tokenAssetInfo[tokenId].amount);
+        return (l._tokenAssetInfo[tokenId].amount, l._tokenAssetInfo[tokenId].initialAmount);
     }
 
     function getAllottedFR(address account) external view virtual override returns (uint256) {
@@ -119,7 +119,7 @@ abstract contract nFR is InFR, SolidStateERC721 {
         address lister = l._tokenListInfo[tokenId].lister;
 
         if (l._tokenListInfo[tokenId].isListed && amount < l._tokenListInfo[tokenId].saleAmount) { // If the token sold a partial amount
-            l._tokenListInfo[tokenId].salePrice -= ((amount.div(l._tokenListInfo[tokenId].saleAmount)).mul(l._tokenListInfo[tokenId].salePrice)); // (buyAmount/saleAmount) * salePrice
+            l._tokenListInfo[tokenId].salePrice -= soldPrice;
             l._tokenListInfo[tokenId].saleAmount -= amount;
         } else { // If the entire list was fulfilled or the token isn't listed, delete everything
             delete l._tokenListInfo[tokenId];

@@ -5,7 +5,7 @@ import { expect } from "chai";
 import { ethers } from "hardhat";
 
 import { Selectors, FacetCutAction } from './libraries/diamond';
-import { getTXCost } from './libraries/txCost';
+import { getTXCost } from './libraries/txUtils';
 
 import { div, mul } from "@prb/math";
 
@@ -79,7 +79,7 @@ describe("nFR implementation contract", function() {
 		});
 
 		it("Should return the proper list info", async function() {
-			expect(await nFR.getListInfo(tokenId)).to.deep.equal([ ethers.BigNumber.from("0"), ethers.constants.AddressZero, false ]);
+			expect(await nFR.getListInfo(tokenId)).to.deep.equal([ ethers.BigNumber.from("0"), ethers.BigNumber.from("0"), ethers.constants.AddressZero, false ]);
 		});
 
 		it("Should have proper asset info", async () => {
@@ -89,59 +89,67 @@ describe("nFR implementation contract", function() {
 	});
 
 	describe("ERC721 Transactions", function() {
-		describe("Reverts", () => {
-			it("Should fail mint without default FR info", async function() {
-				await expect(nFR.mintERC721(owner.address, "")).to.be.revertedWith("No Default FR Info has been set");
+		describe("Minting", () => {
+			describe("Reverts", () => {
+				it("Should fail mint without default FR info", async function() {
+					await expect(nFR.mintERC721(owner.address, "")).to.be.revertedWith("No Default FR Info has been set");
+				});
+			})
+
+			it("Should successfully set default FR info and mint", async function() {
+				await nFR.setDefaultFRInfo(numGenerations, percentOfProfit, successiveRatio);
+				await nFR.mintERC721(owner.address, "")
+				expect(await nFR.ownerOf("2")).to.equal(owner.address);
+			});
+		})
+
+		describe("Transfer", () => {
+			describe("Reverts", () => {
+				it("Should revert if recipient is already in the FR sliding window", async () => {
+					await nFR['safeTransferFrom(address,address,uint256)'](owner.address, addrs[0].address, tokenId);
+		
+					let signer = await nFR.connect(addrs[0]);
+		
+					await expect(signer['safeTransferFrom(address,address,uint256)'](addrs[0].address, owner.address, tokenId)).to.be.revertedWith("Already in the FR sliding window");
+				});	
+			})
+
+			it("Should treat ERC721 transfer as an unprofitable sale and update data accordingly", async function() {
+				await nFR.transferFrom(owner.address, addrs[0].address, tokenId);
+	
+				let expectedArray = [numGenerations, percentOfProfit, successiveRatio, ethers.BigNumber.from("0"), ethers.BigNumber.from("2"), [owner.address, addrs[0].address]];
+				expect(await nFR.getFRInfo(tokenId)).to.deep.equal(expectedArray);
 			});
 	
-			it("Should revert if recipient is already in the FR sliding window", async () => {
-				await nFR['safeTransferFrom(address,address,uint256)'](owner.address, addrs[0].address, tokenId);
+			it("Should shift generations properly even if there have only been ERC721 transfers", async function() {
+				await nFR.transferFrom(owner.address, addrs[0].address, tokenId);
 	
-				let signer = await nFR.connect(addrs[0]);
+				for (let transfers = 0; transfers < 9; transfers++) { // This results in 11 total owners, minter, transfer, 9 more transfers.
+					let signer = nFR.connect(addrs[transfers]);
 	
-				await expect(signer['safeTransferFrom(address,address,uint256)'](addrs[0].address, owner.address, tokenId)).to.be.revertedWith("Already in the FR sliding window");
-			});	
-		});
+					await signer.transferFrom(addrs[transfers].address, addrs[transfers + 1].address, tokenId);
+				}
+	
+				let expectedArray: FRInfo = [numGenerations, percentOfProfit, successiveRatio, ethers.BigNumber.from("0"), ethers.BigNumber.from("11"), []];
+	
+				for (let a = 0; a < 10; a++) {
+					expectedArray[5].push(addrs[a].address);
+				}
+	
+				expect(await nFR.getFRInfo(tokenId)).to.deep.equal(expectedArray);
+	
+				expect(await ethers.provider.getBalance(nFR.address)).to.equal(ethers.BigNumber.from("0"));
+			});
+		})
 
-		it("Should successfully set default FR info and mint", async function() {
-			await nFR.setDefaultFRInfo(numGenerations, percentOfProfit, successiveRatio);
-			await nFR.mintERC721(owner.address, "")
-			expect(await nFR.ownerOf("2")).to.equal(owner.address);
-		});
-
-		it("Should treat ERC721 transfer as an unprofitable sale and update data accordingly", async function() {
-			await nFR.transferFrom(owner.address, addrs[0].address, tokenId);
-
-			let expectedArray = [numGenerations, percentOfProfit, successiveRatio, ethers.BigNumber.from("0"), ethers.BigNumber.from("2"), [owner.address, addrs[0].address]];
-			expect(await nFR.getFRInfo(tokenId)).to.deep.equal(expectedArray);
-		});
-
-		it("Should shift generations properly even if there have only been ERC721 transfers", async function() {
-			await nFR.transferFrom(owner.address, addrs[0].address, tokenId);
-
-			for (let transfers = 0; transfers < 9; transfers++) { // This results in 11 total owners, minter, transfer, 9 more transfers.
-				let signer = nFR.connect(addrs[transfers]);
-
-				await signer.transferFrom(addrs[transfers].address, addrs[transfers + 1].address, tokenId);
-			}
-
-			let expectedArray: FRInfo = [numGenerations, percentOfProfit, successiveRatio, ethers.BigNumber.from("0"), ethers.BigNumber.from("11"), []];
-
-			for (let a = 0; a < 10; a++) {
-				expectedArray[5].push(addrs[a].address);
-			}
-
-			expect(await nFR.getFRInfo(tokenId)).to.deep.equal(expectedArray);
-
-			expect(await ethers.provider.getBalance(nFR.address)).to.equal(ethers.BigNumber.from("0"));
-		});
-
-		it("Should delete FR info upon burning of NFT", async function() {
-			await nFR.burnNFT(tokenId);
-
-			let expectedArray: FRInfo = [0, ethers.BigNumber.from("0"), ethers.BigNumber.from("0"), ethers.BigNumber.from("0"), ethers.BigNumber.from("0"), []];
-			expect(await nFR.getFRInfo(tokenId)).to.deep.equal(expectedArray);
-		});
+		describe("Burning", () => {
+			it("Should delete FR info upon burning of NFT", async function() {
+				await nFR.burnNFT(tokenId);
+	
+				let expectedArray: FRInfo = [0, ethers.BigNumber.from("0"), ethers.BigNumber.from("0"), ethers.BigNumber.from("0"), ethers.BigNumber.from("0"), []];
+				expect(await nFR.getFRInfo(tokenId)).to.deep.equal(expectedArray);
+			});
+		})
 	});
 
 	describe("nFR Transactions", function() {
@@ -170,7 +178,7 @@ describe("nFR implementation contract", function() {
 				it("Should revert buy if NFT is not listed", async function() {
 					let signer = nFR.connect(addrs[0]);
 		
-					await expect(signer.buy(tokenId, { value: ethers.utils.parseUnits("0.5") })).to.be.revertedWith("Token is not listed");
+					await expect(signer.buy(tokenId, tokenAmount, { value: ethers.utils.parseUnits("0.5") })).to.be.revertedWith("Token is not listed");
 				});
 		
 				it("Should revert buy if msg.value is not equal to salePrice", async function() {
@@ -178,11 +186,15 @@ describe("nFR implementation contract", function() {
 		
 					await nFR.list(tokenId, tokenAmount, ethers.utils.parseUnits("1"));
 		
-					await expect(signer.buy(tokenId, { value: ethers.utils.parseUnits("0.5") })).to.be.revertedWith("salePrice and msg.value mismatch");
+					await expect(signer.buy(tokenId, tokenAmount, { value: ethers.utils.parseUnits("0.5") })).to.be.revertedWith("salePrice and msg.value mismatch");
 				});
 	
 				it("Should revert buy if buy amount is greater than sale amount", async () => {
-	
+					let signer = nFR.connect(addrs[0]);
+		
+					await nFR.list(tokenId, tokenAmount, ethers.utils.parseUnits("1"));
+		
+					await expect(signer.buy(tokenId, tokenAmount.add(1), { value: ethers.utils.parseUnits("1") })).to.be.revertedWith("Buy amount exceeds list amount");
 				});
 
 				it("Should revert if buyer is already in the FR sliding window", async () => {
@@ -190,11 +202,11 @@ describe("nFR implementation contract", function() {
 		
 					let buyer = await nFR.connect(addrs[0]);
 		
-					await buyer.buy(tokenId, { value: baseSale });
+					await buyer.buy(tokenId, tokenAmount, { value: baseSale });
 		
 					await buyer.list(tokenId, tokenAmount, baseSale.add(ethers.utils.parseUnits(saleIncrementor)));
 		
-					await expect(nFR.buy(tokenId, { value: baseSale.add(ethers.utils.parseUnits(saleIncrementor)) })).to.revertedWith("Already in the FR sliding window");
+					await expect(nFR.buy(tokenId, tokenAmount, { value: baseSale.add(ethers.utils.parseUnits(saleIncrementor)) })).to.revertedWith("Already in the FR sliding window");
 				});
 			})
 	
@@ -210,13 +222,13 @@ describe("nFR implementation contract", function() {
 		it("Should list properly", async function() {
 			await nFR.list(tokenId, tokenAmount, ethers.utils.parseUnits("1"));
 
-			expect(await nFR.getListInfo(tokenId)).to.deep.equal([ ethers.utils.parseUnits("1"), owner.address, true ]);
+			expect(await nFR.getListInfo(tokenId)).to.deep.equal([ ethers.utils.parseUnits("1"), tokenAmount, owner.address, true ]);
 		});
 
 		it("Should unlist properly", async function() {
 			await nFR.unlist(tokenId);
 
-			expect(await nFR.getListInfo(tokenId)).to.deep.equal([ ethers.BigNumber.from("0"), ethers.constants.AddressZero, false ]);
+			expect(await nFR.getListInfo(tokenId)).to.deep.equal([ ethers.BigNumber.from("0"), ethers.BigNumber.from("0"), ethers.constants.AddressZero, false ]);
 		});
 
 		describe("Fractional Transactions", () => {
@@ -229,7 +241,7 @@ describe("nFR implementation contract", function() {
 	
 				await nFR.list(tokenId, transferAmount, ethers.utils.parseUnits("1"));
 	
-				let tx = await signer.buy(tokenId, {
+				let tx = await signer.buy(tokenId, transferAmount, {
 					value: ethers.utils.parseUnits("1")
 				});
 	
@@ -253,7 +265,7 @@ describe("nFR implementation contract", function() {
 	
 				let buyer = nFR.connect(addrs[1]);
 				
-				tx = await buyer.buy(tokenId + 1, {
+				tx = await buyer.buy(tokenId + 1, transferAmount, {
 					value: ethers.utils.parseUnits("1.5")
 				});
 
@@ -267,18 +279,27 @@ describe("nFR implementation contract", function() {
 
 				let oldContractBalance = await ethers.provider.getBalance(nFR.address);
 
-				await buyer2.buy(tokenId + 1, {
+				await buyer2.buy(tokenId + 1, transferAmount.div(2), {
 					value: ethers.utils.parseUnits("0.9")
 				});
+
+				expectedBalance = expectedBalance.add(ethers.utils.parseUnits("0.9")).sub(mul(ethers.utils.parseUnits("0.15"), percentOfProfit)); // ((0.9/0.25) - (1.5/0.5)) * 0.25 = 0.15
 
 				expect(await ethers.provider.getBalance(nFR.address)).to.be.above(oldContractBalance);
 	
 				expect(await ethers.provider.getBalance(addrs[0].address)).to.be.above(sellerExpectedBalance);
-				expect(await ethers.provider.getBalance(addrs[1].address)).to.be.equal(expectedBalance.add(ethers.utils.parseUnits("0.9")));
-				expect(await ethers.provider.getBalance(nFR.address)).to.equal(ethers.utils.parseUnits("0.08"));
-				expect(await nFR.getAllottedFR(owner.address)).to.equal(ethers.utils.parseUnits("0.08"));
-				expect(await nFR.getAllottedFR(addrs[0].address)).to.equal(ethers.utils.parseUnits("0"));
-				expect(await nFR.getFRInfo(tokenId + 1)).to.deep.equal([ numGenerations, percentOfProfit, successiveRatio, ethers.utils.parseUnits("1.5"), ethers.BigNumber.from("3"), [owner.address, addrs[0].address, addrs[1].address] ]);
+				expect(await ethers.provider.getBalance(addrs[1].address)).to.be.equal(expectedBalance);
+				expect(await ethers.provider.getBalance(nFR.address)).to.equal(ethers.utils.parseUnits("0.104")); // (0.5 * 0.16) + (0.15 * 0.16) = 0.104
+				expect(await nFR.getAllottedFR(owner.address)).to.be.above(ethers.utils.parseUnits("0.08")); // 2 payments
+				expect(await nFR.getAllottedFR(addrs[0].address)).to.be.above(ethers.utils.parseUnits("0")); // 1 payment
+				expect(await nFR.getAllottedFR(addrs[1].address)).to.equal(ethers.utils.parseUnits("0")); // No payments
+				expect(await nFR.getAllottedFR(addrs[2].address)).to.equal(ethers.utils.parseUnits("0")); // No payments
+				expect(await nFR.getFRInfo(tokenId + 1)).to.deep.equal([ numGenerations, percentOfProfit, successiveRatio, ethers.utils.parseUnits("1.5"), ethers.BigNumber.from("3"), [ owner.address, addrs[0].address, addrs[1].address ] ]);
+				expect(await nFR.getFRInfo(tokenId + 2)).to.deep.equal([ numGenerations, percentOfProfit, successiveRatio, ethers.utils.parseUnits("0.9"), ethers.BigNumber.from("4"), [ owner.address, addrs[0].address, addrs[1].address, addrs[2].address ] ]);
+				expect(await nFR.getAssetInfo(tokenId)).to.deep.equal([ ethers.utils.parseUnits("0.5"), ethers.utils.parseUnits("1") ]);
+
+				expect(await nFR.getAssetInfo(tokenId + 1)).to.deep.equal([ ethers.utils.parseUnits("0.25"), ethers.utils.parseUnits("0.5") ]);
+				expect(await nFR.getAssetInfo(tokenId + 2)).to.deep.equal([ ethers.utils.parseUnits("0.25"), ethers.utils.parseUnits("0.25") ]);
 			});
 	
 			it("Should treat an unprofitable transaction properly", async function() {
@@ -286,7 +307,7 @@ describe("nFR implementation contract", function() {
 	
 				await nFR.list(tokenId, transferAmount, ethers.utils.parseUnits("1"));
 	
-				await signer.buy(tokenId, {
+				await signer.buy(tokenId, transferAmount, {
 					value: ethers.utils.parseUnits("1")
 				});
 	
@@ -296,7 +317,7 @@ describe("nFR implementation contract", function() {
 	
 				await signer.list(tokenId + 1, transferAmount, ethers.utils.parseUnits("0.5"));
 	
-				await secondSigner.buy(tokenId + 1, { value: ethers.utils.parseUnits("0.5") });
+				await secondSigner.buy(tokenId + 1, transferAmount, { value: ethers.utils.parseUnits("0.5") });
 	
 				expect(await ethers.provider.getBalance(addrs[0].address)).to.be.above(balanceBefore.add(ethers.utils.parseUnits("0.5")).sub(ethers.utils.parseUnits("0.001")));
 				expect(await nFR.getAllottedFR(owner.address)).to.equal(ethers.utils.parseUnits("0"));
@@ -315,7 +336,7 @@ describe("nFR implementation contract", function() {
 	
 				await nFR.list(tokenId, tokenAmount, ethers.utils.parseUnits("1"));
 	
-				await signer.buy(tokenId, {
+				await signer.buy(tokenId, tokenAmount, {
 					value: ethers.utils.parseUnits("1")
 				});
 	
@@ -334,7 +355,7 @@ describe("nFR implementation contract", function() {
 	
 				let buyer = nFR.connect(addrs[1]);
 				
-				await buyer.buy(tokenId, {
+				await buyer.buy(tokenId, tokenAmount, {
 					value: ethers.utils.parseUnits("1.5")
 				});
 	
@@ -351,7 +372,7 @@ describe("nFR implementation contract", function() {
 	
 				await nFR.list(tokenId, tokenAmount, ethers.utils.parseUnits("1"));
 	
-				await signer.buy(tokenId, {
+				await signer.buy(tokenId, tokenAmount, {
 					value: ethers.utils.parseUnits("1")
 				});
 	
@@ -361,7 +382,7 @@ describe("nFR implementation contract", function() {
 	
 				await signer.list(tokenId, tokenAmount, ethers.utils.parseUnits("0.5"));
 	
-				await secondSigner.buy(tokenId, { value: ethers.utils.parseUnits("0.5") });
+				await secondSigner.buy(tokenId, tokenAmount, { value: ethers.utils.parseUnits("0.5") });
 	
 				expect(await ethers.provider.getBalance(addrs[0].address)).to.be.above(balanceBefore.add(ethers.utils.parseUnits("0.5")).sub(ethers.utils.parseUnits("0.001")));
 				expect(await nFR.getAllottedFR(owner.address)).to.equal(ethers.utils.parseUnits("0"));
@@ -374,11 +395,11 @@ describe("nFR implementation contract", function() {
 	
 				await nFR.list(tokenId, tokenAmount, ethers.utils.parseUnits("1"));
 	
-				await signer.buy(tokenId, {
+				await signer.buy(tokenId, tokenAmount, {
 					value: ethers.utils.parseUnits("1")
 				});
 	
-				expect(await nFR.getListInfo(tokenId)).to.deep.equal([ ethers.BigNumber.from("0"), ethers.constants.AddressZero, false ]);
+				expect(await nFR.getListInfo(tokenId)).to.deep.equal([ ethers.BigNumber.from("0"), ethers.BigNumber.from("0"), ethers.constants.AddressZero, false ]);
 			});
 
 			it("Should run through 10 FR generations successfully", async function() {
@@ -386,7 +407,7 @@ describe("nFR implementation contract", function() {
 	
 				let s = nFR.connect(addrs[0]);
 	
-				await s.buy(tokenId, { value: ethers.utils.parseUnits("1") });
+				await s.buy(tokenId, tokenAmount, { value: ethers.utils.parseUnits("1") });
 	
 				for (let transfers = 0; transfers < 9; transfers++) { // This results in 11 total owners, minter, transfer, 9 more transfers.
 					let signer = nFR.connect(addrs[transfers]);
@@ -396,7 +417,7 @@ describe("nFR implementation contract", function() {
 	
 					await signer.list(tokenId, tokenAmount, salePrice);
 	
-					await secondSigner.buy(tokenId, { value: salePrice });
+					await secondSigner.buy(tokenId, tokenAmount, { value: salePrice });
 				}
 	
 				let expectedArray: any = [numGenerations, percentOfProfit, successiveRatio, ethers.utils.parseUnits("5.5"), ethers.BigNumber.from("11"), []]; // [3] = 5.5 because 1 [initial sale] +  9 * 0.5 [9 sales of 0.5 (11th holder didn't sell, so there were only 10 sales incl minter)] | [4] = 11 because minter + 10 owners
@@ -426,13 +447,13 @@ describe("nFR implementation contract", function() {
 
 			await nFR.list(tokenId, tokenAmount, ethers.utils.parseUnits("1"));
 
-			await signer.buy(tokenId, { value: ethers.utils.parseUnits("1") });
+			await signer.buy(tokenId, tokenAmount, { value: ethers.utils.parseUnits("1") });
 
 			await signer.list(tokenId, tokenAmount, ethers.utils.parseUnits("1.5"));
 
 			signer = nFR.connect(addrs[1]);
 
-			await expect(signer.buy(tokenId, { value: ethers.utils.parseUnits("1.5") })).to.emit(nFR, "FRDistributed")
+			await expect(signer.buy(tokenId, tokenAmount, { value: ethers.utils.parseUnits("1.5") })).to.emit(nFR, "FRDistributed")
 			.withArgs(tokenId, ethers.utils.parseUnits("1.5"), ethers.utils.parseUnits("0.08"));
 		});
 
@@ -442,7 +463,7 @@ describe("nFR implementation contract", function() {
 
 				await nFR.list(tokenId, tokenAmount, ethers.utils.parseUnits("1"));
 
-				await signer.buy(tokenId, { value: ethers.utils.parseUnits("1") });
+				await signer.buy(tokenId, tokenAmount, { value: ethers.utils.parseUnits("1") });
 
 				expect(await nFR.getAllottedFR(owner.address)).to.equal(ethers.utils.parseUnits("0"));
 				expect(await ethers.provider.getBalance(nFR.address)).to.equal(ethers.utils.parseUnits("0"));
@@ -451,7 +472,7 @@ describe("nFR implementation contract", function() {
 
 				signer = nFR.connect(addrs[1]);
 
-				signer.buy(tokenId, { value: ethers.utils.parseUnits("1.5") });
+				signer.buy(tokenId, tokenAmount, { value: ethers.utils.parseUnits("1.5") });
 
 				expect(await nFR.getAllottedFR(addrs[0].address)).to.equal(ethers.utils.parseUnits("0"));
 
@@ -473,13 +494,13 @@ describe("nFR implementation contract", function() {
 
 				await nFR.list(tokenId, tokenAmount, ethers.utils.parseUnits("1"));
 
-				await signer.buy(tokenId, { value: ethers.utils.parseUnits("1") });
+				await signer.buy(tokenId, tokenAmount, { value: ethers.utils.parseUnits("1") });
 
 				await signer.list(tokenId, tokenAmount, ethers.utils.parseUnits("1.5"));
 
 				signer = await nFR.connect(addrs[1]);
 
-				await signer.buy(tokenId, { value: ethers.utils.parseUnits("1.5") });
+				await signer.buy(tokenId, tokenAmount, { value: ethers.utils.parseUnits("1.5") });
 
 				await expect(nFR.releaseFR(owner.address)).to.emit(nFR, "FRClaimed").withArgs(owner.address, ethers.utils.parseUnits("0.08"));
 			});
