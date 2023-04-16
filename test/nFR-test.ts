@@ -323,6 +323,59 @@ describe("nFR implementation contract", function() {
 				expect(await nFR.getAllottedFR(owner.address)).to.equal(ethers.utils.parseUnits("0"));
 				expect(await nFR.getAllottedFR(addrs[0].address)).to.equal(ethers.utils.parseUnits("0"));
 				expect(await nFR.getFRInfo(tokenId + 1)).to.deep.equal([ numGenerations, percentOfProfit, successiveRatio, ethers.utils.parseUnits("0.5"), ethers.BigNumber.from("3"), [owner.address, addrs[0].address, addrs[1].address] ]);
+
+				balanceBefore = await ethers.provider.getBalance(addrs[1].address);
+
+				let thirdSigner = await nFR.connect(addrs[2]);
+
+				await secondSigner.list(tokenId + 1, transferAmount.div(2), ethers.utils.parseUnits("0.24"));
+
+				await thirdSigner.buy(tokenId + 1, transferAmount.div(2), { value: ethers.utils.parseUnits("0.24" )});
+
+				expect(await ethers.provider.getBalance(addrs[1].address)).to.be.above(balanceBefore.add(ethers.utils.parseUnits("0.24")).sub(ethers.utils.parseUnits("0.001")));
+				expect(await nFR.getAllottedFR(owner.address)).to.equal(ethers.utils.parseUnits("0"));
+				expect(await nFR.getAllottedFR(addrs[0].address)).to.equal(ethers.utils.parseUnits("0"));
+				expect(await nFR.getFRInfo(tokenId + 2)).to.deep.equal([ numGenerations, percentOfProfit, successiveRatio, ethers.utils.parseUnits("0.24"), ethers.BigNumber.from("4"), [owner.address, addrs[0].address, addrs[1].address, addrs[2].address] ]);
+			});
+		});
+
+		describe("Partial Buys", () => {
+			describe("Reverts", () => {
+				it("Should revert if amount supplied is too large", async () => {
+					let buyer = nFR.connect(addrs[0]);
+
+					await nFR.list(tokenId, transferAmount, baseSale);
+
+					await expect(buyer.buy(tokenId, transferAmount.add(1), { value: baseSale })).to.be.revertedWith("Buy amount exceeds list amount");
+				});
+
+				it("Should revert if value is not proportional to amount", async () => {
+					let buyer = nFR.connect(addrs[0]);
+
+					await nFR.list(tokenId, transferAmount, baseSale);
+
+					await expect(buyer.buy(tokenId, transferAmount.div(2), { value: baseSale })).to.be.revertedWith("salePrice and msg.value mismatch");
+					await expect(buyer.buy(tokenId, transferAmount.div(2), { value: baseSale.div(3) })).to.be.revertedWith("salePrice and msg.value mismatch");
+				});
+			});
+
+			it("Should successfully fulfill a partial buy", async () => {
+				let buyer = nFR.connect(addrs[0]);
+
+				let balanceBefore = await ethers.provider.getBalance(owner.address);
+
+				await nFR.list(tokenId, transferAmount, baseSale);
+
+				await buyer.buy(tokenId, transferAmount.div(2), { value: baseSale.div(2) });
+
+				expect(await ethers.provider.getBalance(owner.address)).to.be.above(balanceBefore.add(ethers.utils.parseUnits("0.5")).sub(ethers.utils.parseUnits("0.001")));
+				expect(await nFR.getAllottedFR(owner.address)).to.equal(ethers.utils.parseUnits("0"));
+				
+				expect(await nFR.getFRInfo(tokenId)).to.deep.equal([ numGenerations, percentOfProfit, successiveRatio, ethers.utils.parseUnits("0"), ethers.BigNumber.from("1"), [owner.address] ]);
+				expect(await nFR.getFRInfo(tokenId + 1)).to.deep.equal([ numGenerations, percentOfProfit, successiveRatio, ethers.utils.parseUnits("0.5"), ethers.BigNumber.from("2"), [owner.address, addrs[0].address] ]);
+
+				expect(await nFR.getAssetInfo(tokenId)).to.deep.equal([ tokenAmount.sub(tokenAmount.div(4)), tokenAmount ]);
+				expect(await nFR.getAssetInfo(tokenId + 1)).to.deep.equal([ transferAmount.div(2), transferAmount.div(2) ]);
 			});
 		});
 
