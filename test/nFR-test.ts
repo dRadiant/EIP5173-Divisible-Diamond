@@ -111,7 +111,11 @@ describe("nFR implementation contract", function() {
 					let signer = await nFR.connect(addrs[0]);
 		
 					await expect(signer['safeTransferFrom(address,address,uint256)'](addrs[0].address, owner.address, tokenId)).to.be.revertedWith("Already in the FR sliding window");
-				});	
+				});
+				
+				it("Should revert if transfer to self", async () => {
+					await expect(nFR.transferFrom(owner.address, owner.address, tokenId)).to.be.revertedWith("transfer to self");
+				});
 			})
 
 			it("Should treat ERC721 transfer as an unprofitable sale and update data accordingly", async function() {
@@ -154,6 +158,15 @@ describe("nFR implementation contract", function() {
 
 	describe("nFR Transactions", function() {
 		describe("Reverts", () => {
+			describe("Minting", () => {
+				it("Should fail with invalid data passed", async () => {
+					await expect(nFR.mintNFT(owner.address, 0, numGenerations, percentOfProfit, successiveRatio, "")).to.be.revertedWith("Invalid Data Passed");
+					await expect(nFR.mintNFT(owner.address, tokenAmount, 0, percentOfProfit, successiveRatio, "")).to.be.revertedWith("Invalid Data Passed");
+					await expect(nFR.mintNFT(owner.address, tokenAmount, numGenerations, 0, successiveRatio, "")).to.be.revertedWith("Invalid Data Passed");
+					await expect(nFR.mintNFT(owner.address, tokenAmount, numGenerations, percentOfProfit, 0, "")).to.be.revertedWith("Invalid Data Passed");
+				});
+			});
+
 			describe("List", () => {
 				it("Should fail list if not owner", async function() {
 					let signer = nFR.connect(addrs[0]);
