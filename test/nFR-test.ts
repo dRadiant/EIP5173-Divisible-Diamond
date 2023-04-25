@@ -362,7 +362,7 @@ describe("nFR implementation contract", function() {
 					await expect(buyer.buy(tokenId, transferAmount.add(1), { value: baseSale })).to.be.revertedWith("Buy amount exceeds list amount");
 				});
 
-				it("Should revert if value is not proportional to amount", async () => {
+				it("Should revert if msg.value is not proportional to amount", async () => {
 					let buyer = nFR.connect(addrs[0]);
 
 					await nFR.list(tokenId, transferAmount, baseSale);
@@ -389,6 +389,8 @@ describe("nFR implementation contract", function() {
 
 				expect(await nFR.getAssetInfo(tokenId)).to.deep.equal([ tokenAmount.sub(tokenAmount.div(4)), tokenAmount ]);
 				expect(await nFR.getAssetInfo(tokenId + 1)).to.deep.equal([ transferAmount.div(2), transferAmount.div(2) ]);
+
+				expect(await nFR.getListInfo(tokenId)).to.deep.equal([ baseSale.div(2), transferAmount.div(2), owner.address, true ]);
 			});
 		});
 

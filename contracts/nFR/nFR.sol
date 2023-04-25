@@ -105,7 +105,7 @@ abstract contract nFR is InFR, SolidStateERC721 {
 
             l._tokenAssetInfo[tokenId].amount -= amount;
         }
-        
+        // We could just do an else instead of a new if
         if (newTokenId == 0) { // Whole NFT has been transferred
             ERC721BaseInternal._transfer(from, to, tokenId);
             require(_checkOnERC721Received(from, to, tokenId, ""), "ERC721: transfer to non ERC721Receiver implementer");
