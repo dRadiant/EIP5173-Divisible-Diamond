@@ -350,6 +350,53 @@ describe("nFR implementation contract", function() {
 				expect(await nFR.getAllottedFR(addrs[0].address)).to.equal(ethers.utils.parseUnits("0"));
 				expect(await nFR.getFRInfo(tokenId + 2)).to.deep.equal([ numGenerations, percentOfProfit, successiveRatio, ethers.utils.parseUnits("0.24"), ethers.BigNumber.from("4"), [owner.address, addrs[0].address, addrs[1].address, addrs[2].address] ]);
 			});
+
+			it("Should run through 10 FR Generations successfully", async () => {
+				let buyAmount = tokenAmount.div(2);
+				let currentTokenId = tokenId;
+
+				await nFR.list(currentTokenId, buyAmount, baseSale);
+	
+				let s = nFR.connect(addrs[0]);
+	
+				await s.buy(currentTokenId, buyAmount, { value: baseSale });
+
+				currentTokenId++;
+
+				for (let transfers = 0; transfers < 9; transfers++) { // This results in 11 total owners, minter, transfer, 9 more transfers.
+					let signer = nFR.connect(addrs[transfers]);
+					let secondSigner = nFR.connect(addrs[transfers + 1]);
+					buyAmount = buyAmount.div(2);
+	
+					let salePrice = (await nFR.getFRInfo(currentTokenId))[3].add(ethers.utils.parseUnits(saleIncrementor)); // Get lastSoldPrice and add incrementor
+	
+					await signer.list(currentTokenId, buyAmount, salePrice);
+	
+					await secondSigner.buy(currentTokenId, buyAmount, { value: salePrice });
+
+					currentTokenId++;
+				}
+	
+				let expectedArray: any = [numGenerations, percentOfProfit, successiveRatio, ethers.utils.parseUnits("5.5"), ethers.BigNumber.from("11"), []]; // [3] = 5.5 because 1 [initial sale] +  9 * 0.5 [9 sales of 0.5 (11th holder didn't sell, so there were only 10 sales incl minter)] | [4] = 11 because minter + 10 owners
+	
+				for (let a = 0; a < 10; a++) {
+					expectedArray[5].push(addrs[a].address);
+				}
+	
+				expect(await nFR.getFRInfo(currentTokenId)).to.deep.equal(expectedArray);
+	
+				expect(await ethers.provider.getBalance(nFR.address)).to.be.above(ethers.utils.parseUnits("0.719")); // (9 * 0.5 * 0.16) = 0.72 - Taking fixed-point dust into account
+	
+				let totalOwners = [owner.address, ...expectedArray[5]];
+	
+				let allottedFRs = [];
+	
+				for (let o of totalOwners) allottedFRs.push(await nFR.getAllottedFR(o));
+	
+				let greatestFR = allottedFRs.reduce((m, e) => e.gt(m) ? e : m);
+	
+				expect(greatestFR).to.equal(allottedFRs[0]);
+			});
 		});
 
 		describe("Partial Buys", () => {
