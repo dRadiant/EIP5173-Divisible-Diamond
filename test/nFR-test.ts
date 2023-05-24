@@ -377,15 +377,27 @@ describe("nFR implementation contract", function() {
 					currentTokenId++;
 				}
 	
-				let expectedArray: any = [numGenerations, percentOfProfit, successiveRatio, ethers.utils.parseUnits("5.5"), ethers.BigNumber.from("11"), []]; // [3] = 5.5 because 1 [initial sale] +  9 * 0.5 [9 sales of 0.5 (11th holder didn't sell, so there were only 10 sales incl minter)] | [4] = 11 because minter + 10 owners
+				let expectedArray: FRInfo = [numGenerations, percentOfProfit, successiveRatio, ethers.utils.parseUnits("5.5"), ethers.BigNumber.from("11"), []]; // [3] = 5.5 because 1 [initial sale] +  9 * 0.5 [9 sales of 0.5 (11th holder didn't sell, so there were only 10 sales incl minter)] | [4] = 11 because minter + 10 owners
 	
 				for (let a = 0; a < 10; a++) {
 					expectedArray[5].push(addrs[a].address);
 				}
 	
 				expect(await nFR.getFRInfo(currentTokenId)).to.deep.equal(expectedArray);
+
+				let expectedAssetInfo: AssetInfo = [ethers.utils.parseUnits("0.0009765625"), ethers.utils.parseUnits("0.0009765625")]; // 1 * (1/2**10)
+
+				expect(await nFR.getAssetInfo(currentTokenId)).to.deep.equal(expectedAssetInfo);
+
+				expect(await nFR.getAssetInfo(tokenId)).to.deep.equal([ ethers.utils.parseUnits("0.5"), ethers.utils.parseUnits("1") ]);
+
+				let expectedContractBalance = ethers.utils.parseUnits("0.16");
+
+				for (let inc = 1; inc <= 8; inc++) {
+					expectedContractBalance = expectedContractBalance.add(mul(percentOfProfit, (ethers.utils.parseUnits("1").add(mul(ethers.utils.parseUnits("0.25"), ethers.utils.parseUnits(inc.toString())))))) // Messy, should just put expectedContractBalance to top of test and increment it throughout the runtime
+				}
 	
-				expect(await ethers.provider.getBalance(nFR.address)).to.be.above(ethers.utils.parseUnits("0.719")); // (9 * 0.5 * 0.16) = 0.72 - Taking fixed-point dust into account
+				expect(await ethers.provider.getBalance(nFR.address)).to.equal(expectedContractBalance);
 	
 				let totalOwners = [owner.address, ...expectedArray[5]];
 	
