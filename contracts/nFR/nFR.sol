@@ -194,7 +194,7 @@ abstract contract nFR is InFR, SolidStateERC721 {
     function _createSplitToken(address to, uint256 tokenId, uint256 amount, uint256 soldPrice) internal virtual returns (uint256) {
         CounterStorage.incrementTokenId();
 
-        uint256 newTokenId = CounterStorage.currentTokenId();
+        uint256 newTokenId = CounterStorage.currentTokenId(); // Might make the incrementation of the tokenId into an overridable function, so it can be modified in an inheriting contract, instead of directly manipulating data in this contract
 
         nFRStorage.Layout storage l = nFRStorage.layout();
 
