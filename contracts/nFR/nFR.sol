@@ -79,7 +79,7 @@ abstract contract nFR is InFR, SolidStateERC721 {
         require(from != to, "transfer to self");
         nFRStorage.Layout storage l = nFRStorage.layout();
 
-        require(amount <= l._tokenAssetInfo[tokenId].amount, "amount is too large"); // If this check is done in list, is it necessary here?
+        // require(amount <= l._tokenAssetInfo[tokenId].amount, "amount is too large"); // If this check is done in list, is it necessary here?
 
         for (uint i = 0; i < l._tokenFRInfo[tokenId].addressesInFR.length; i++) { // Could use an isInFR mapping if it is cheaper
             require(l._tokenFRInfo[tokenId].addressesInFR[i] != to, "Already in the FR sliding window");
@@ -205,16 +205,19 @@ abstract contract nFR is InFR, SolidStateERC721 {
         return newTokenId;
     }
 
-    function _mint(address to, uint256 tokenId) internal virtual override { // This func has not been touched at all, need to refactor it to be up to date
+    function _mint(address to, uint256 tokenId) internal virtual override { // On a side note, do we even need default info? We could just revert on this function call
         nFRStorage.Layout storage l = nFRStorage.layout();
 
         require(l._defaultFRInfo.isValid, "No Default FR Info has been set");
+        require(l._defaultAssetInfo.amount > 0, "No Default Asset Info has been set");
 
         super._mint(to, tokenId);
 
         l._tokenFRInfo[tokenId] = nFRStorage.FRInfo(l._defaultFRInfo.numGenerations, l._defaultFRInfo.percentOfProfit, l._defaultFRInfo.successiveRatio, 0, 1, new address[](0), true);
 
         l._tokenFRInfo[tokenId].addressesInFR.push(to);
+
+        l._tokenAssetInfo[tokenId] = l._defaultAssetInfo;
     }
 
     function _mint(
@@ -295,7 +298,7 @@ abstract contract nFR is InFR, SolidStateERC721 {
         uint8 numGenerations,
         uint256 percentOfProfit,
         uint256 successiveRatio
-    ) internal virtual { // Probably need to touch on this function as well
+    ) internal virtual { // If we decide to scrap defaults then we should delete this func and _setDefaultAssetInfo
         require(numGenerations > 0 && percentOfProfit > 0 && percentOfProfit <= 1e18 && successiveRatio > 0, "Invalid Data Passed");
         nFRStorage.Layout storage l = nFRStorage.layout();
 
@@ -303,6 +306,14 @@ abstract contract nFR is InFR, SolidStateERC721 {
         l._defaultFRInfo.percentOfProfit = percentOfProfit;
         l._defaultFRInfo.successiveRatio = successiveRatio;
         l._defaultFRInfo.isValid = true;
+    }
+
+    function _setDefaultAssetInfo(uint256 amount) internal virtual { // Delete func if we end up scraping defaults
+        require(amount > 0, "Invalid Data Passed");
+        nFRStorage.Layout storage l = nFRStorage.layout();
+
+        l._defaultAssetInfo.initialAmount = amount;
+        l._defaultAssetInfo.amount = amount;
     }
 
     function releaseFR(address payable account) public virtual override {

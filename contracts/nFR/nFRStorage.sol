@@ -30,6 +30,7 @@ library nFRStorage {
 
     struct Layout {
         FRInfo _defaultFRInfo;
+        AssetInfo _defaultAssetInfo;
         
         mapping(uint256 => FRInfo) _tokenFRInfo;
 

@@ -94,12 +94,21 @@ describe("nFR implementation contract", function() {
 				it("Should fail mint without default FR info", async function() {
 					await expect(nFR.mintERC721(owner.address, "")).to.be.revertedWith("No Default FR Info has been set");
 				});
+
+				it("Should fail mint without default Asset info", async function() {
+					await nFR.setDefaultFRInfo(numGenerations, percentOfProfit, successiveRatio);
+					await expect(nFR.mintERC721(owner.address, "")).to.be.revertedWith("No Default Asset Info has been set");
+				});
 			})
 
-			it("Should successfully set default FR info and mint", async function() {
+			it("Should successfully set default FR and Asset info and mint", async function() {
 				await nFR.setDefaultFRInfo(numGenerations, percentOfProfit, successiveRatio);
+				await nFR.setDefaultAssetInfo(tokenAmount);
 				await nFR.mintERC721(owner.address, "")
 				expect(await nFR.ownerOf("2")).to.equal(owner.address);
+
+				expect(await nFR.getFRInfo("2")).to.deep.equal([ numGenerations, percentOfProfit, successiveRatio, ethers.BigNumber.from("0"), ethers.BigNumber.from("1"), [owner.address] ]);
+				expect(await nFR.getAssetInfo("2")).to.deep.equal([ tokenAmount, tokenAmount ]);
 			});
 		})
 

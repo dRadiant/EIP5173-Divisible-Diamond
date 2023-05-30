@@ -43,6 +43,12 @@ contract nFRFacet is nFR {
         _setDefaultFRInfo(numGenerations, percentOfProfit, successiveRatio);
     }
 
+    function setDefaultAssetInfo(
+        uint256 amount
+    ) external {
+        _setDefaultAssetInfo(amount);
+    }
+
     function burnNFT(uint256 tokenId) external {
         _burn(tokenId);
     }
