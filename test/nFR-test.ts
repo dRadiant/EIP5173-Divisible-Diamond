@@ -18,7 +18,7 @@ type FRInfo = [
 	string[]
 ];
   
-type ListInfo = [ethers.BigNumber, string, boolean];
+type ListInfo = [ethers.BigNumber, ethers.BigNumber, string, boolean];
   
 type AssetInfo = [ethers.BigNumber, ethers.BigNumber];
 
@@ -156,11 +156,14 @@ describe("nFR implementation contract", function() {
 		})
 
 		describe("Burning", () => {
-			it("Should delete FR info upon burning of NFT", async function() {
+			it("Should delete FR and Asset info upon burning of NFT", async function() {
 				await nFR.burnNFT(tokenId);
 	
 				let expectedArray: FRInfo = [0, ethers.BigNumber.from("0"), ethers.BigNumber.from("0"), ethers.BigNumber.from("0"), ethers.BigNumber.from("0"), []];
 				expect(await nFR.getFRInfo(tokenId)).to.deep.equal(expectedArray);
+
+				let expectedAssetArray: AssetInfo = [ ethers.BigNumber.from("0"), ethers.BigNumber.from("0") ];
+				expect(await nFR.getAssetInfo(tokenId)).to.deep.equal(expectedAssetArray);
 			});
 		})
 	});
@@ -241,16 +244,18 @@ describe("nFR implementation contract", function() {
 			})
 		});
 
-		it("Should list properly", async function() {
-			await nFR.list(tokenId, tokenAmount, ethers.utils.parseUnits("1"));
-
-			expect(await nFR.getListInfo(tokenId)).to.deep.equal([ ethers.utils.parseUnits("1"), tokenAmount, owner.address, true ]);
-		});
-
-		it("Should unlist properly", async function() {
-			await nFR.unlist(tokenId);
-
-			expect(await nFR.getListInfo(tokenId)).to.deep.equal([ ethers.BigNumber.from("0"), ethers.BigNumber.from("0"), ethers.constants.AddressZero, false ]);
+		describe("Listing", () => {
+			it("Should list properly", async function() {
+				await nFR.list(tokenId, tokenAmount, ethers.utils.parseUnits("1"));
+	
+				expect(await nFR.getListInfo(tokenId)).to.deep.equal([ ethers.utils.parseUnits("1"), tokenAmount, owner.address, true ]);
+			});
+	
+			it("Should unlist properly", async function() {
+				await nFR.unlist(tokenId);
+	
+				expect(await nFR.getListInfo(tokenId)).to.deep.equal([ ethers.BigNumber.from("0"), ethers.BigNumber.from("0"), ethers.constants.AddressZero, false ]);
+			});
 		});
 
 		describe("Fractional Transactions", () => {
