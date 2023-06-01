@@ -18,7 +18,7 @@ library nFRStorage {
     struct ListInfo {
         uint256 salePrice; // ETH mantissa of the listed selling price
         uint256 saleAmount; // Amount of tokens being sold
-        // uint256 maxPartial; // Max amount that can be sold partially
+        // uint256 maxPartial; // Max amount that can be sold partially // Though at the same time it might be easier to do bool isPartial. //? What's the use case of specifiying the maximum amount that can be sold partially in your listing?
         address lister; // Owner/Lister of the Token
         bool isListed; // Boolean indicating whether the Token is listed or not
     }

@@ -79,34 +79,29 @@ abstract contract nFR is InFR, SolidStateERC721 {
         require(from != to, "transfer to self");
         nFRStorage.Layout storage l = nFRStorage.layout();
 
-        // require(amount <= l._tokenAssetInfo[tokenId].amount, "amount is too large"); // If this check is done in list, is it necessary here?
+        // require(amount <= l._tokenAssetInfo[tokenId].amount, "amount is too large"); //? If this check is done in list, is it necessary here?
 
         for (uint i = 0; i < l._tokenFRInfo[tokenId].addressesInFR.length; i++) { // Could use an isInFR mapping if it is cheaper
             require(l._tokenFRInfo[tokenId].addressesInFR[i] != to, "Already in the FR sliding window");
         }
 
-        // Just transfer the token
-
-        // NFT sold for a loss, meaning no FR distribution, but we still shift generations, and update price. We return ALL of the received ETH to the msg.sender as no FR chunk was needed.
-
         uint256 allocatedFR = 0;
 
         int256 profit = ((int256(soldPrice).div(int256(amount))) - (int256(l._tokenFRInfo[tokenId].lastSoldPrice).div(int256(l._tokenAssetInfo[tokenId].initialAmount)))).mul(int256(amount)); // All values are uints, however, when doing these calculations we need ints because they have the potential to be negatives/"underflow" if a tx is unprofitable.
 
-        if (profit > 0) { // NFT sold for a profit // Might need to think about if we need to replace this *soldPrice* with the more advanced profit calculation formula, like let's say you buy 5 tokens for 10 ETH (each token is worth 2 ETH), then sell 1 token for 3 ETH, that is profit, but soldPrice dictates it is a loss, so we probably need to move that formula here as well.
-            allocatedFR = _distributeFR(tokenId, soldPrice, amount); // We could pass in the already calculated profit, and just typecast it to uint, instead of recalculating as we know the value is > 0
+        if (profit > 0) { // NFT sold for a profit
+            allocatedFR = _distributeFR(tokenId, soldPrice, amount); // TODO: We could pass in the already calculated profit, and just typecast it to uint, instead of recalculating as we know the value is > 0
         }
 
-        uint256 newTokenId;
+        uint256 newTokenId; //? Do we even need this if we aren't using it anywhere?
 
         if (amount != l._tokenAssetInfo[tokenId].amount) {
             // Mint a new token that clones the FR info, then deducts the amount from the current token, then we set the newTokenId
             newTokenId = _createSplitToken(to, tokenId, amount, soldPrice);
 
             l._tokenAssetInfo[tokenId].amount -= amount;
-        }
-        // We could just do an else instead of a new if
-        if (newTokenId == 0) { // Whole NFT has been transferred
+        } else {
+            // Whole NFT has been transferred
             ERC721BaseInternal._transfer(from, to, tokenId);
             require(_checkOnERC721Received(from, to, tokenId, ""), "ERC721: transfer to non ERC721Receiver implementer");
 
